@@ -1,14 +1,19 @@
 use image::{Rgb, RgbImage};
+use std::collections::HashSet;
+use strum::IntoEnumIterator;
 
 pub const ROAD: usize = 0;
 pub const WALL: usize = 1;
+pub const PATH: usize = 2;
+pub const VISITED: usize = 3;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct MapPos(pub usize, pub usize);
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct RoadPos(pub usize, pub usize);
 
+#[derive(Clone)]
 pub struct Maze {
     maze_map: Vec<Vec<usize>>,
     start: RoadPos,
@@ -89,7 +94,9 @@ impl Maze {
     }
 
     pub fn set_pos(&mut self, pos: MapPos, value: usize) {
-        if self.check_pos(pos) && (value == ROAD || value == WALL) {
+        if self.check_pos(pos)
+            && (value == ROAD || value == WALL || value == PATH || value == VISITED)
+        {
             self.maze_map[pos.1][pos.0] = value;
         }
     }
@@ -159,6 +166,39 @@ impl Maze {
         ))
     }
 
+    pub fn mark_path(&mut self, path: &[RoadPos]) {
+        for &cell in path {
+            if let Some(map) = self.road_to_map(cell) {
+                self.set_pos(map, PATH);
+            }
+        }
+        for pair in path.windows(2) {
+            self.set_pos(
+                MapPos(pair[0].0 + pair[1].0 - 1, pair[0].1 + pair[1].1 - 1),
+                PATH,
+            );
+        }
+    }
+
+    pub fn mark_visited(&mut self, cells: &[RoadPos]) {
+        let visited: HashSet<RoadPos> = cells.iter().copied().collect();
+
+        for &cell in cells {
+            if let Some(map) = self.road_to_map(cell) {
+                self.set_pos(map, VISITED);
+            }
+            for dir in Direction::iter() {
+                if let Some(neighbor) = self.neighbor_road_pos(cell, dir)
+                    && visited.contains(&neighbor)
+                    && let Some(wall) = self.get_wall_by_the_road(cell, dir)
+                    && self.get_pos(wall) == Some(ROAD)
+                {
+                    self.set_pos(wall, VISITED);
+                }
+            }
+        }
+    }
+
     pub fn render(&self, path: &str, cell_size: u32) -> image::ImageResult<()> {
         assert!(cell_size > 0, "cell_size must be positive");
 
@@ -176,6 +216,10 @@ impl Maze {
                     Rgb([0, 220, 0])
                 } else if MapPos(x, y) == end_pos {
                     Rgb([220, 0, 0])
+                } else if self.get_pos(MapPos(x, y)) == Some(PATH) {
+                    Rgb([255, 155, 55])
+                } else if self.get_pos(MapPos(x, y)) == Some(VISITED) {
+                    Rgb([130, 190, 255])
                 } else if self.get_pos(MapPos(x, y)) == Some(ROAD) {
                     Rgb([255, 255, 255])
                 } else {
